@@ -1,16 +1,20 @@
 // app/(tabs)/orders.tsx
 import { Ionicons } from "@expo/vector-icons";
+import * as MediaLibrary from "expo-media-library";
 import { useFocusEffect } from "expo-router";
-import { useCallback, useState } from "react";
+import * as Sharing from "expo-sharing";
+import { useCallback, useRef, useState } from "react";
+import ViewShot from "react-native-view-shot";
+
 import {
-    ActivityIndicator,
-    Modal,
-    RefreshControl,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Modal,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { supabase } from "../../lib/supabase";
 
@@ -27,6 +31,7 @@ type Order = {
   status: string;
   total_amount: number;
   created_at: string;
+  full_name?: string;
   order_items: OrderItem[];
 };
 
@@ -47,6 +52,9 @@ const ACTIVE_STATUSES = ["pending", "preparing", "ready"];
 
 // ─── MAIN COMPONENT ───────────────────────────────────────────────────────────
 export default function OrdersScreen() {
+  const [showReceipt, setShowReceipt] = useState(false);
+
+const receiptRef = useRef<ViewShot>(null);
   const [orders, setOrders]         = useState<Order[]>([]);
   const [filtered, setFiltered]     = useState<Order[]>([]);
   const [activeFilter, setActiveFilter] = useState("all");
@@ -54,27 +62,75 @@ export default function OrdersScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
 
+
+
+  const downloadReceipt = async () => {
+  try {
+    const permission =
+      await MediaLibrary.requestPermissionsAsync();
+
+    if (!permission.granted) {
+      alert("Please allow storage permission.");
+      return;
+    }
+
+    const uri = await receiptRef.current?.capture?.();
+
+    if (!uri) {
+      alert("Unable to generate receipt.");
+      return;
+    }
+
+    await MediaLibrary.saveToLibraryAsync(uri);
+
+    if (await Sharing.isAvailableAsync()) {
+      await Sharing.shareAsync(uri);
+    }
+
+    alert("Receipt saved successfully!");
+  } catch (error) {
+    console.log(error);
+    alert("Failed to save receipt.");
+  }
+};
+
+
   // ── fetch orders ───────────────────────────────────────────────────────────
   const fetchOrders = async () => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      const { data, error } = await supabase
-        .from("orders")
-        .select(`
-          id, status, total_amount, created_at,
-          order_items(id, quantity, subtotal, foods(name, price))
-        `)
-        .eq("user_id", user.id)
-        .order("created_at", { ascending: false }) as unknown as {
-          data: Order[] | null; error: any;
-        };
+     const { data, error } = await supabase
+  .from("orders")
+  .select(`
+    id,
+    status,
+    total_amount,
+    created_at,
+    users(full_name),
+    order_items(
+      id,
+      quantity,
+      subtotal,
+      foods(name, price)
+    )
+  `)
+  .eq("user_id", user.id)
+  .order("created_at", { ascending: false });
 
-      if (error) { console.error(error); return; }
+   if (error) {
+  console.error(error);
+  return;
+}
 
-      setOrders(data ?? []);
-      applyFilter(activeFilter, data ?? []);
+const formattedOrders = (data || []).map((order: any) => ({
+  ...order,
+  full_name: order.users?.full_name,
+}));
+
+setOrders(formattedOrders);
+applyFilter(activeFilter, formattedOrders);
     } catch (e) {
       console.error(e);
     } finally {
@@ -103,6 +159,7 @@ export default function OrdersScreen() {
       setFiltered(list.filter(o => o.status === filter));
     }
   };
+  
 
   // ── helpers ────────────────────────────────────────────────────────────────
   const formatTime = (iso: string) =>
@@ -274,26 +331,53 @@ export default function OrdersScreen() {
               const cfg = STATUS_CONFIG[selectedOrder.status] ?? STATUS_CONFIG.pending;
               return (
                 <>
-                  {/* drag handle */}
+              
                   <View style={styles.dragHandle} />
 
-                  {/* modal header */}
-                  <View style={styles.modalHeader}>
-                    <View>
-                      <Text style={styles.modalOrderId}>
-                        #{selectedOrder.id.slice(0, 8).toUpperCase()}
-                      </Text>
-                      <Text style={styles.modalTime}>
-                        {formatTime(selectedOrder.created_at)}
-                      </Text>
-                    </View>
-                    <TouchableOpacity
-                      style={styles.closeBtn}
-                      onPress={() => setSelectedOrder(null)}
-                    >
-                      <Ionicons name="close" size={20} color="#666" />
-                    </TouchableOpacity>
-                  </View>
+                 
+               <View style={styles.modalHeader}>
+  <View>
+    <Text style={styles.modalOrderId}>
+      #{selectedOrder.id.slice(0, 8).toUpperCase()}
+    </Text>
+
+    <Text style={styles.modalTime}>
+      {formatTime(selectedOrder.created_at)}
+    </Text>
+
+    <TouchableOpacity
+      style={styles.receiptCardBtn}
+      onPress={() => setShowReceipt(true)}
+    >
+      <Ionicons
+        name="receipt-outline"
+        size={18}
+        color="#ff4d4d"
+      />
+
+      <Text style={styles.receiptCardTitle}>
+        View Receipt
+      </Text>
+
+      <Ionicons
+        name="chevron-forward"
+        size={16}
+        color="#ff4d4d"
+      />
+    </TouchableOpacity>
+  </View>
+
+  <TouchableOpacity
+    style={styles.closeBtn}
+    onPress={() => setSelectedOrder(null)}
+  >
+    <Ionicons
+      name="close"
+      size={20}
+      color="#666"
+    />
+  </TouchableOpacity>
+</View>
 
                   {/* status banner */}
                   <View style={[styles.statusBanner, { backgroundColor: cfg.bg }]}>
@@ -353,6 +437,141 @@ export default function OrdersScreen() {
           </View>
         </View>
       </Modal>
+      <Modal
+  visible={showReceipt}
+  transparent
+  animationType="fade"
+  onRequestClose={() => setShowReceipt(false)}
+>
+  <View style={styles.receiptOverlay}>
+    <ViewShot
+      ref={receiptRef}
+      options={{
+        format: "png",
+        quality: 1,
+      }}
+    >
+      <View style={styles.receiptModal}>
+        {selectedOrder && (
+          <>
+            {/* Success Icon */}
+            <View style={styles.receiptSuccess}>
+              <Ionicons
+                name="checkmark"
+                size={40}
+                color="#fff"
+              />
+            </View>
+
+            <Text style={styles.receiptTitle}>
+              Order Confirmed!
+            </Text>
+
+            <Text style={styles.receiptSubtitle}>
+              Present this stub to the canteen counter
+            </Text>
+
+            <View style={styles.receiptDivider} />
+
+            {/* Order Info */}
+            <View style={styles.receiptInfoRow}>
+              <Text style={styles.receiptLabel}>
+                Order ID:
+              </Text>
+
+              <Text style={styles.receiptValue}>
+                #{selectedOrder.id.slice(0, 8).toUpperCase()}
+              </Text>
+            </View>
+
+              <View style={styles.receiptInfoRow}>
+            <Text style={styles.receiptLabel}>
+              Customer:
+            </Text>
+
+            <Text style={styles.receiptValue}>
+              {selectedOrder.full_name || "N/A"}
+            </Text>
+              </View>
+
+
+            <View style={styles.receiptInfoRow}>
+              <Text style={styles.receiptLabel}>
+                Date:
+              </Text>
+
+              <Text style={styles.receiptValue}>
+                {formatTime(selectedOrder.created_at)}
+              </Text>
+            </View>
+
+            <View style={styles.receiptInfoRow}>
+              <Text style={styles.receiptLabel}>
+                Status:
+              </Text>
+
+              <Text style={styles.receiptValue}>
+                {selectedOrder.status}
+              </Text>
+            </View>
+
+            <View style={styles.receiptDivider} />
+
+            <Text style={styles.receiptSection}>
+              ITEMS ORDERED
+            </Text>
+
+            {selectedOrder.order_items.map((item, index) => (
+              <View
+                key={index}
+                style={styles.receiptItemRow}
+              >
+                <Text style={styles.receiptQty}>
+                  {item.quantity}x
+                </Text>
+
+                <Text style={styles.receiptItemName}>
+                  {item.foods?.name}
+                </Text>
+
+                <Text style={styles.receiptPrice}>
+                  ₱{Number(item.subtotal).toFixed(2)}
+                </Text>
+              </View>
+            ))}
+
+            <View style={styles.receiptDivider} />
+
+            <View style={styles.receiptTotalRow}>
+              <Text style={styles.receiptTotalText}>
+                Total Amount
+              </Text>
+
+              <Text style={styles.receiptTotalPrice}>
+                ₱{Number(
+                  selectedOrder.total_amount
+                ).toFixed(2)}
+              </Text>
+            </View>
+          </>
+        )}
+      </View>
+    </ViewShot>
+
+    {/* Download Button */}
+
+    {/* Close Button */}
+    <TouchableOpacity
+      style={styles.receiptCloseBtn}
+      onPress={() => setShowReceipt(false)}
+    >
+      <Text style={styles.receiptCloseText}>
+        Close Receipt
+      </Text>
+    </TouchableOpacity>
+  </View>
+</Modal>
+
 
     </View>
   );
@@ -478,4 +697,198 @@ const styles = StyleSheet.create({
     paddingVertical: 14, alignItems: "center",
   },
   closeBtnFullText: { fontSize: 15, fontWeight: "700", color: "#666" },
+  receiptBtn: {
+  backgroundColor: "#ff4d4d",
+  borderRadius: 14,
+  paddingVertical: 14,
+  flexDirection: "row",
+  justifyContent: "center",
+  alignItems: "center",
+  gap: 8,
+  marginBottom: 12,
+},
+
+receiptBtnText: {
+  color: "#fff",
+  fontWeight: "700",
+},
+
+receiptOverlay: {
+  flex: 1,
+  backgroundColor: "rgba(0,0,0,0.5)",
+  justifyContent: "center",
+  alignItems: "center",
+},
+
+receiptModal: {
+  width: 320,
+  backgroundColor: "#fff",
+  borderRadius: 25,
+  padding: 20,
+},
+
+receiptSuccess: {
+  width: 70,
+  height: 70,
+  borderRadius: 35,
+  backgroundColor: "#22c55e",
+  alignSelf: "center",
+  justifyContent: "center",
+  alignItems: "center",
+  marginBottom: 12,
+},
+
+receiptTitle: {
+  textAlign: "center",
+  fontSize: 22,
+  fontWeight: "800",
+},
+
+receiptSubtitle: {
+  textAlign: "center",
+  color: "#888",
+  marginBottom: 15,
+},
+
+receiptDivider: {
+  borderBottomWidth: 1,
+  borderColor: "#eee",
+  marginVertical: 15,
+},
+
+receiptInfoRow: {
+  flexDirection: "row",
+  justifyContent: "space-between",
+  marginBottom: 10,
+},
+
+receiptLabel: {
+  color: "#888",
+},
+
+receiptValue: {
+  fontWeight: "700",
+},
+
+receiptSection: {
+  fontWeight: "800",
+  color: "#999",
+  marginBottom: 15,
+},
+
+receiptItemRow: {
+  flexDirection: "row",
+  alignItems: "center",
+  marginBottom: 10,
+},
+
+receiptQty: {
+  width: 40,
+  color: "#ff4d4d",
+  fontWeight: "700",
+},
+
+receiptItemName: {
+  flex: 1,
+},
+
+receiptPrice: {
+  fontWeight: "700",
+},
+
+receiptTotalRow: {
+  flexDirection: "row",
+  justifyContent: "space-between",
+  marginTop: 10,
+},
+
+receiptTotalText: {
+  fontSize: 18,
+  fontWeight: "800",
+},
+
+receiptTotalPrice: {
+  fontSize: 24,
+  fontWeight: "900",
+  color: "#ff4d4d",
+},
+
+downloadBtn: {
+  marginTop: 20,
+  backgroundColor: "#10b981",
+  borderRadius: 14,
+  paddingVertical: 14,
+  paddingHorizontal: 25,
+  flexDirection: "row",
+  alignItems: "center",
+  gap: 8,
+},
+
+downloadBtnText: {
+  color: "#fff",
+  fontWeight: "700",
+},
+
+receiptCloseBtn: {
+  marginTop: 20,
+  width: 320,
+  backgroundColor: "#ff4d4d",
+
+  paddingVertical: 16,
+
+  borderRadius: 16,
+
+  justifyContent: "center",
+  alignItems: "center",
+
+  shadowColor: "#ff4d4d",
+  shadowOffset: {
+    width: 0,
+    height: 6,
+  },
+  shadowOpacity: 0.25,
+  shadowRadius: 10,
+
+  elevation: 6,
+},
+
+receiptCloseText: {
+  color: "#fff",
+  fontSize: 15,
+  fontWeight: "800",
+  letterSpacing: 0.3,
+},
+receiptCardBtn: {
+  marginTop: 12,
+
+  backgroundColor: "#ff4d4d",
+
+  flexDirection: "row",
+  alignItems: "center",
+  justifyContent: "center",
+
+  paddingVertical: 10,
+  paddingHorizontal: 16,
+
+  borderRadius: 12,
+
+  alignSelf: "flex-start",
+
+  shadowColor: "#ff4d4d",
+  shadowOffset: {
+    width: 0,
+    height: 4,
+  },
+  shadowOpacity: 0.25,
+  shadowRadius: 8,
+
+  elevation: 5,
+},
+
+receiptCardTitle: {
+  color: "#fff",
+  fontSize: 13,
+  fontWeight: "700",
+  marginHorizontal: 6,
+},
 });

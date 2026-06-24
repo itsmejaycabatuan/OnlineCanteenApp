@@ -116,9 +116,7 @@ const saveEditedNote = () => {
   }
 };
 
-  // DATABASE CHECKOUT HANDLER
-// DATABASE CHECKOUT HANDLER
-// DATABASE CHECKOUT HANDLER
+
  const handleFinalCheckoutConfirm = async () => {
   try {
     // 1. Get user session

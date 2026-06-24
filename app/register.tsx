@@ -48,20 +48,18 @@ const Field = ({ label, icon, value, onChangeText, placeholder, keyboardType, se
 export default function RegisterScreen() {
   const router = useRouter();
 
-  const [step, setStep]                   = useState<Step>("form");
-  const [fullName, setFullName]           = useState("");
-  const [schoolId, setSchoolId]           = useState("");
-  const [email, setEmail]                 = useState("");
-  const [password, setPassword]           = useState("");
+  const [step, setStep]                       = useState<Step>("form");
+  const [fullName, setFullName]               = useState("");
+  const [schoolId, setSchoolId]               = useState("");
+  const [email, setEmail]                     = useState("");
+  const [password, setPassword]               = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [showPassword, setShowPassword]   = useState(false);
-  const [showConfirm, setShowConfirm]     = useState(false);
-  const [loading, setLoading]             = useState(false);
- const [otp, setOtp] = useState([
-  "", "", "", "", "", "", "", ""
-]);
-  const [otpError, setOtpError]           = useState("");
-  const [errors, setErrors]               = useState<Record<string, string>>({});
+  const [showPassword, setShowPassword]       = useState(false);
+  const [showConfirm, setShowConfirm]         = useState(false);
+  const [loading, setLoading]                 = useState(false);
+  const [otp, setOtp]                         = useState(["", "", "", "", "", "", "", ""]);
+  const [otpError, setOtpError]               = useState("");
+  const [errors, setErrors]                   = useState<Record<string, string>>({});
 
   const scaleAnim = useRef(new Animated.Value(0)).current;
   const inputRefs = useRef<(TextInput | null)[]>([]);
@@ -69,15 +67,34 @@ export default function RegisterScreen() {
   // ── Validate form ──────────────────────────────────────────────────────────
   const validate = () => {
     const errs: Record<string, string> = {};
-    if (!fullName.trim())       errs.fullName = "Full name is required.";
-    if (!schoolId.trim())       errs.schoolId = "School ID is required.";
-    if (!email.trim())          errs.email    = "Email is required.";
+
+    if (!fullName.trim())
+      errs.fullName = "Full name is required.";
+
+    if (!schoolId.trim())
+      errs.schoolId = "School ID is required.";
+    else if (!/^SCC-\d{2}-\d{8}$/.test(schoolId.trim().toUpperCase()))
+      // ✅ Validates format: SCC-21-00013497
+      // SCC = fixed prefix
+      // \d{2} = 2-digit year (e.g. 21)
+      // \d{8} = 8-digit student number (e.g. 00013497)
+      errs.schoolId = "Invalid format. Use: SCC-21-00013497";
+
+    if (!email.trim())
+      errs.email = "Email is required.";
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()))
-                                errs.email    = "Enter a valid email address.";
-    if (!password)              errs.password = "Password is required.";
-    else if (password.length < 6) errs.password = "Password must be at least 6 characters.";
-    if (!confirmPassword)       errs.confirmPassword = "Please confirm your password.";
-    else if (password !== confirmPassword) errs.confirmPassword = "Passwords do not match.";
+      errs.email = "Enter a valid email address.";
+
+    if (!password)
+      errs.password = "Password is required.";
+    else if (password.length < 6)
+      errs.password = "Password must be at least 6 characters.";
+
+    if (!confirmPassword)
+      errs.confirmPassword = "Please confirm your password.";
+    else if (password !== confirmPassword)
+      errs.confirmPassword = "Passwords do not match.";
+
     setErrors(errs);
     return Object.keys(errs).length === 0;
   };
@@ -92,15 +109,14 @@ export default function RegisterScreen() {
         email: email.trim(),
         password,
         options: {
-          data: { full_name: fullName, school_id: schoolId },
-          // Supabase will send a 6-digit OTP to the email automatically
+          data: {
+            full_name: fullName,
+            school_id: schoolId.trim().toUpperCase(), // always store uppercase
+          },
         },
       });
 
-      if (error) {
-        setErrors({ email: error.message });
-        return;
-      }
+      if (error) { setErrors({ email: error.message }); return; }
 
       setStep("otp");
     } catch (e: any) {
@@ -114,14 +130,14 @@ export default function RegisterScreen() {
   const handleVerifyOtp = async () => {
     setOtpError("");
     const code = otp.join("");
-   if (code.length < 8) { setOtpError("Please enter the full 8-digit code."); return; }
+    if (code.length < 8) { setOtpError("Please enter the full 8-digit code."); return; }
 
     setLoading(true);
     try {
       const { error } = await supabase.auth.verifyOtp({
         email: email.trim(),
         token: code,
-        type: "signup", // "signup" type for registration verification
+        type: "signup",
       });
 
       if (error) { setOtpError("Invalid or expired code. Please try again."); return; }
@@ -145,7 +161,7 @@ export default function RegisterScreen() {
   // ── Resend OTP ─────────────────────────────────────────────────────────────
   const handleResend = async () => {
     setOtpError("");
-    setOtp(["", "", "", "", "", ""]);
+    setOtp(["", "", "", "", "", "", "", ""]);
     setLoading(true);
     try {
       await supabase.auth.resend({ type: "signup", email: email.trim() });
@@ -163,7 +179,7 @@ export default function RegisterScreen() {
     newOtp[index] = cleaned;
     setOtp(newOtp);
     setOtpError("");
-   if (cleaned && index < 7) inputRefs.current[index + 1]?.focus();
+    if (cleaned && index < 7) inputRefs.current[index + 1]?.focus();
   };
 
   const handleOtpKeyPress = (key: string, index: number) => {
@@ -193,21 +209,28 @@ export default function RegisterScreen() {
             <Field
               label="Full Name"
               icon="person-outline"
-              placeholder="John Doe"
+              placeholder="Christian Q. Yongzon"
               value={fullName}
               onChangeText={(v: string) => { setFullName(v); setErrors(p => ({ ...p, fullName: "" })); }}
               autoCapitalize="words"
               error={errors.fullName}
             />
 
+            {/* ── School ID with format hint ── */}
             <Field
               label="School ID"
               icon="card-outline"
-              placeholder="2024-XXXXX"
+              placeholder="SCC-YY-XXXXXXXX"
               value={schoolId}
-              onChangeText={(v: string) => { setSchoolId(v); setErrors(p => ({ ...p, schoolId: "" })); }}
+              onChangeText={(v: string) => {
+                // Auto-uppercase as user types
+                setSchoolId(v.toUpperCase());
+                setErrors(p => ({ ...p, schoolId: "" }));
+              }}
+              autoCapitalize="characters"
               error={errors.schoolId}
             />
+         
 
             <Field
               label="Email Address"
@@ -282,7 +305,7 @@ export default function RegisterScreen() {
             <View style={styles.infoBox}>
               <Ionicons name="information-circle-outline" size={18} color="#3b82f6" />
               <Text style={styles.infoText}>
-                A 8-digit verification code will be sent to your email after registering.
+                An 8-character verification code will be sent to your email after registering.
               </Text>
             </View>
 
@@ -330,19 +353,17 @@ export default function RegisterScreen() {
 
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Email Verification</Text>
-            <Text style={styles.cardSub}>Check your inbox and enter the 6-digit code below.</Text>
+            <Text style={styles.cardSub}>Check your inbox and enter the 8-character code below.</Text>
 
-            {/* Email pill */}
             <View style={styles.emailPill}>
               <Ionicons name="mail-outline" size={16} color="#ff4d4d" />
               <Text style={styles.emailPillText}>{email}</Text>
             </View>
 
-            <Text style={styles.label}>8-Digit Code</Text>
+            <Text style={styles.label}>8-Character Code</Text>
 
-            {/* OTP Boxes */}
             <View style={styles.otpRow}>
-             {otp.map((digit, index) => (
+              {otp.map((digit, index) => (
                 <TextInput
                   key={index}
                   ref={(ref) => { inputRefs.current[index] = ref; }}
@@ -388,11 +409,7 @@ export default function RegisterScreen() {
               </LinearGradient>
             </TouchableOpacity>
 
-            <TouchableOpacity
-              style={styles.resendBtn}
-              onPress={handleResend}
-              disabled={loading}
-            >
+            <TouchableOpacity style={styles.resendBtn} onPress={handleResend} disabled={loading}>
               <Ionicons name="refresh-outline" size={16} color="#ff4d4d" />
               <Text style={styles.resendBtnText}>Resend Code</Text>
             </TouchableOpacity>
@@ -423,13 +440,12 @@ export default function RegisterScreen() {
           Your account has been verified successfully.{"\n"}Redirecting you to login…
         </Text>
 
-        {/* What's next card */}
         <View style={styles.stepsCard}>
           <Text style={styles.stepsTitle}>What's next:</Text>
           {[
-            { icon: "log-in-outline",       text: "Sign in with your new account"  },
-            { icon: "restaurant-outline",   text: "Browse the canteen menu"        },
-            { icon: "cart-outline",         text: "Place your first order"         },
+            { icon: "log-in-outline",     text: "Sign in with your new account" },
+            { icon: "restaurant-outline", text: "Browse the canteen menu"       },
+            { icon: "cart-outline",       text: "Place your first order"        },
           ].map((s, i) => (
             <View key={i} style={styles.stepRow}>
               <View style={styles.stepNumCircle}>
@@ -441,10 +457,7 @@ export default function RegisterScreen() {
           ))}
         </View>
 
-        <TouchableOpacity
-          style={styles.btn}
-          onPress={() => router.replace("/login" as any)}
-        >
+        <TouchableOpacity style={styles.btn} onPress={() => router.replace("/login" as any)}>
           <LinearGradient colors={["#ff4d4d", "#ff7043"]} style={styles.btnGradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}>
             <View style={styles.btnRow}>
               <Ionicons name="log-in-outline" size={18} color="#fff" />
@@ -501,9 +514,12 @@ const styles = StyleSheet.create({
   errorRow:  { flexDirection: "row", alignItems: "center", gap: 5, marginTop: 4, marginBottom: 8 },
   errorText: { color: "#ef4444", fontSize: 12, fontWeight: "500" },
 
-  strengthRow:  { flexDirection: "row", alignItems: "center", gap: 4 },
-  strengthBar:  { flex: 1, height: 4, borderRadius: 2 },
-  strengthLabel:{ fontSize: 11, color: "#aaa", marginLeft: 6, width: 40 },
+  // ✅ hint text shown under School ID field
+  hintText:  { fontSize: 11, color: "#aaa", marginTop: 2, marginBottom: 10, marginLeft: 2 },
+
+  strengthRow:   { flexDirection: "row", alignItems: "center", gap: 4 },
+  strengthBar:   { flex: 1, height: 4, borderRadius: 2 },
+  strengthLabel: { fontSize: 11, color: "#aaa", marginLeft: 6, width: 40 },
 
   matchRow:  { flexDirection: "row", alignItems: "center", gap: 6 },
   matchText: { fontSize: 12, fontWeight: "500" },
@@ -520,11 +536,10 @@ const styles = StyleSheet.create({
   btnRow:      { flexDirection: "row", alignItems: "center", gap: 8 },
   btnText:     { color: "#fff", fontWeight: "800", fontSize: 16 },
 
-  footer: { flexDirection: "row", justifyContent: "center", paddingBottom: 20 },
+  footer:     { flexDirection: "row", justifyContent: "center", paddingBottom: 20 },
   footerText: { color: "#999", fontSize: 14 },
   footerLink: { color: "#ff4d4d", fontWeight: "700", fontSize: 14 },
 
-  // EMAIL PILL
   emailPill: {
     flexDirection: "row", alignItems: "center", gap: 8,
     backgroundColor: "#fff5f5", borderRadius: 20,
@@ -534,25 +549,15 @@ const styles = StyleSheet.create({
   },
   emailPillText: { color: "#ff4d4d", fontWeight: "700", fontSize: 14 },
 
-  // OTP
   otpRow: {
-  flexDirection: "row",
-  justifyContent: "space-between",
-  marginBottom: 16,
-  paddingHorizontal: 5,
-},
- otpBox: {
-  width: 36,
-  height: 48,
-  borderRadius: 10,
-  backgroundColor: "#f8f8f8",
-  borderWidth: 1.5,
-  borderColor: "#f0f0f0",
-  textAlign: "center",
-  fontSize: 18,
-  fontWeight: "800",
-  color: "#1a1a1a",
-},
+    flexDirection: "row", justifyContent: "space-between",
+    marginBottom: 16, paddingHorizontal: 5,
+  },
+  otpBox: {
+    width: 36, height: 48, borderRadius: 10,
+    backgroundColor: "#f8f8f8", borderWidth: 1.5, borderColor: "#f0f0f0",
+    textAlign: "center", fontSize: 18, fontWeight: "800", color: "#1a1a1a",
+  },
   otpBoxFilled: { borderColor: "#ff4d4d", backgroundColor: "#fff5f5" },
   otpBoxError:  { borderColor: "#ef4444" },
 
@@ -564,7 +569,6 @@ const styles = StyleSheet.create({
   },
   resendBtnText: { color: "#ff4d4d", fontWeight: "700", fontSize: 14 },
 
-  // SUCCESS
   successIconCircle: {
     width: 110, height: 110, borderRadius: 55,
     backgroundColor: "#f0fdf4",

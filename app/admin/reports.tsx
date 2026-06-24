@@ -4,14 +4,14 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import {
-    ActivityIndicator,
-    Dimensions,
-    RefreshControl,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Dimensions,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { supabase } from "../../lib/supabase";
 
@@ -53,10 +53,13 @@ type OverallStats = {
 };
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
-const RANGES = [
-  { label: "7D",  value: "7"  },
-  { label: "30D", value: "30" },
-  { label: "All", value: "all"},
+type RangeKey = "today" | "yesterday" | "month" | "all";
+
+const RANGES: { label: string; value: RangeKey }[] = [
+  { label: "Today",      value: "today"     },
+  { label: "Yesterday",  value: "yesterday" },
+  { label: "This Month", value: "month"     },
+  { label: "All Time",   value: "all"       },
 ];
 
 const STATUS_COLORS: Record<string, string> = {
@@ -78,39 +81,53 @@ const CATEGORY_COLORS: Record<string, string> = {
 export default function ReportsScreen() {
   const router = useRouter();
 
-  const [loading, setLoading]       = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [activeRange, setActiveRange] = useState("7");
+  const [loading, setLoading]         = useState(true);
+  const [refreshing, setRefreshing]   = useState(false);
+  const [activeRange, setActiveRange] = useState<RangeKey>("today");
 
-  const [overall, setOverall]           = useState<OverallStats | null>(null);
+  const [overall, setOverall]               = useState<OverallStats | null>(null);
   const [dailySummaries, setDailySummaries] = useState<DailySummary[]>([]);
-  const [topItems, setTopItems]         = useState<TopItem[]>([]);
-  const [categoryStats, setCategoryStats] = useState<CategoryStat[]>([]);
-  const [statusStats, setStatusStats]   = useState<OrderStatusStat[]>([]);
+  const [topItems, setTopItems]             = useState<TopItem[]>([]);
+  const [categoryStats, setCategoryStats]   = useState<CategoryStat[]>([]);
+  const [statusStats, setStatusStats]       = useState<OrderStatusStat[]>([]);
 
-  // ── fetch all data ─────────────────────────────────────────────────────────
+  // ── date helpers ─────────────────────────────────────────────────────────
+  const todayStr     = () => new Date().toISOString().split("T")[0];
+  const yesterdayStr = () => {
+    const d = new Date(); d.setDate(d.getDate() - 1);
+    return d.toISOString().split("T")[0];
+  };
+  const monthStartStr = () => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
+  };
+
+  const getDateRange = (): { from: string; to: string } => {
+    const today = todayStr();
+    if (activeRange === "today")     return { from: today,           to: today           };
+    if (activeRange === "yesterday") return { from: yesterdayStr(),  to: yesterdayStr()  };
+    if (activeRange === "month")     return { from: monthStartStr(), to: today           };
+    return { from: "2000-01-01", to: today };
+  };
+
+  // ── main fetch ────────────────────────────────────────────────────────────
   const fetchReports = async () => {
     try {
-      // date range
-      const fromDate = activeRange === "all"
-        ? null
-        : (() => {
-            const d = new Date();
-            d.setDate(d.getDate() - parseInt(activeRange));
-            return d.toISOString().split("T")[0];
-          })();
+      const { from, to } = getDateRange();
 
-      // 1. Overall stats from orders
-      let ordersQuery = supabase
+      // 1. Fetch all orders in range
+      const { data: allOrders } = await supabase
         .from("orders")
-        .select("id, status, total_amount, created_at");
-      if (fromDate) ordersQuery = ordersQuery.gte("created_at", `${fromDate}T00:00:00`);
-      const { data: allOrders } = await ordersQuery;
+        .select("id, status, total_amount, created_at")
+        .gte("created_at", `${from}T00:00:00`)
+        .lte("created_at", `${to}T23:59:59`);
 
-      const completed  = allOrders?.filter(o => o.status === "completed")  ?? [];
-      const cancelled  = allOrders?.filter(o => o.status === "cancelled")  ?? [];
-      const totalRev   = completed.reduce((s, o) => s + Number(o.total_amount), 0);
-      const avgVal     = completed.length > 0 ? totalRev / completed.length : 0;
+      const completed = allOrders?.filter(o => o.status === "completed") ?? [];
+      const cancelled = allOrders?.filter(o => o.status === "cancelled") ?? [];
+
+      // ✅ FIXED: only sum revenue from COMPLETED orders, never cancelled
+      const totalRev = completed.reduce((s, o) => s + Number(o.total_amount), 0);
+      const avgVal   = completed.length > 0 ? totalRev / completed.length : 0;
 
       // 2. Student count
       const { count: studentCount } = await supabase
@@ -119,11 +136,11 @@ export default function ReportsScreen() {
         .eq("role", "student");
 
       setOverall({
-        totalRevenue:    totalRev,
+        totalRevenue:    totalRev,          // ✅ completed only
         totalOrders:     allOrders?.length ?? 0,
         completedOrders: completed.length,
         cancelledOrders: cancelled.length,
-        avgOrderValue:   avgVal,
+        avgOrderValue:   avgVal,            // ✅ completed only
         totalStudents:   studentCount ?? 0,
       });
 
@@ -137,25 +154,25 @@ export default function ReportsScreen() {
       );
 
       // 4. Daily summaries from revenue_summary table
-      let revQuery = supabase
+      const { data: revData } = await supabase
         .from("revenue_summary")
         .select("*")
+        .gte("date", from)
+        .lte("date", to)
         .order("date", { ascending: true });
-      if (fromDate) revQuery = revQuery.gte("date", fromDate);
-      const { data: revData } = await revQuery;
       setDailySummaries(revData ?? []);
 
-      // 5. Top selling items
-      let itemsQuery = supabase
+      // 5. Top selling items — completed orders only
+      const { data: itemsData } = await supabase
         .from("order_items")
-        .select("quantity, foods(name, price, category), orders(created_at, status)");
-      const { data: itemsData } = await itemsQuery as unknown as { data: any[] };
+        .select("quantity, foods(name, price, category), orders(created_at, status)") as unknown as { data: any[] };
 
-      // filter by date and only completed orders
+      // ✅ filter: completed + within date range only
       const filteredItems = (itemsData ?? []).filter(row => {
         if (!row.orders) return false;
-        if (row.orders.status !== "completed") return false;
-        if (fromDate && row.orders.created_at < `${fromDate}T00:00:00`) return false;
+        if (row.orders.status !== "completed") return false; // ✅ completed only
+        if (row.orders.created_at < `${from}T00:00:00`) return false;
+        if (row.orders.created_at > `${to}T23:59:59`)   return false;
         return true;
       });
 
@@ -169,13 +186,14 @@ export default function ReportsScreen() {
           rev: (itemMap[name]?.rev ?? 0) + (price * row.quantity),
         };
       });
-      const sortedItems = Object.entries(itemMap)
-        .map(([name, v]) => ({ name, total_quantity: v.qty, total_revenue: v.rev }))
-        .sort((a, b) => b.total_quantity - a.total_quantity)
-        .slice(0, 5);
-      setTopItems(sortedItems);
+      setTopItems(
+        Object.entries(itemMap)
+          .map(([name, v]) => ({ name, total_quantity: v.qty, total_revenue: v.rev }))
+          .sort((a, b) => b.total_quantity - a.total_quantity)
+          .slice(0, 5)
+      );
 
-      // 6. Category breakdown
+      // 6. Category breakdown — completed orders only
       const catMap: Record<string, { count: number; revenue: number }> = {};
       filteredItems.forEach(row => {
         const cat = row.foods?.category?.toLowerCase();
@@ -187,11 +205,9 @@ export default function ReportsScreen() {
         };
       });
       setCategoryStats(
-        Object.entries(catMap).map(([category, v]) => ({
-          category,
-          count:   v.count,
-          revenue: v.revenue,
-        })).sort((a, b) => b.count - a.count)
+        Object.entries(catMap)
+          .map(([category, v]) => ({ category, count: v.count, revenue: v.revenue }))
+          .sort((a, b) => b.count - a.count)
       );
 
     } catch (e) {
@@ -204,7 +220,7 @@ export default function ReportsScreen() {
 
   useEffect(() => { setLoading(true); fetchReports(); }, [activeRange]);
 
-  // ── helpers ────────────────────────────────────────────────────────────────
+  // ── helpers ───────────────────────────────────────────────────────────────
   const formatCurrency = (v: number) =>
     `₱${Number(v).toLocaleString("en-PH", { minimumFractionDigits: 2 })}`;
 
@@ -237,14 +253,13 @@ export default function ReportsScreen() {
           />
         }
       >
-
-        {/* ── HEADER ─────────────────────────────────────────────────────── */}
+        {/* ── HEADER ── */}
         <LinearGradient colors={["#ff4d4d", "#ff7043"]} style={styles.header}>
           <View style={styles.headerTop}>
             <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
               <Ionicons name="arrow-back" size={22} color="#fff" />
             </TouchableOpacity>
-            <View>
+            <View style={{ alignItems: "center" }}>
               <Text style={styles.headerTitle}>Reports & Analytics</Text>
               <Text style={styles.headerSub}>Track your canteen performance</Text>
             </View>
@@ -256,21 +271,15 @@ export default function ReportsScreen() {
             </TouchableOpacity>
           </View>
 
-          {/* DATE RANGE FILTER */}
-          <View style={styles.rangeRow}>
+          {/* ── TABS — same style as revenue.tsx ── */}
+          <View style={styles.tabRow}>
             {RANGES.map(r => (
               <TouchableOpacity
                 key={r.value}
-                style={[
-                  styles.rangeBtn,
-                  activeRange === r.value && styles.rangeBtnActive,
-                ]}
+                style={[styles.tab, activeRange === r.value && styles.tabActive]}
                 onPress={() => setActiveRange(r.value)}
               >
-                <Text style={[
-                  styles.rangeBtnText,
-                  activeRange === r.value && styles.rangeBtnTextActive,
-                ]}>
+                <Text style={[styles.tabText, activeRange === r.value && styles.tabTextActive]}>
                   {r.label}
                 </Text>
               </TouchableOpacity>
@@ -280,54 +289,26 @@ export default function ReportsScreen() {
 
         <View style={styles.body}>
 
-          {/* ── OVERALL KPI CARDS ──────────────────────────────────────────── */}
-          <Text style={styles.sectionTitle}>📊 Key Metrics</Text>
-          <View style={styles.kpiGrid}>
-            <KPICard
-              icon="cash-outline"
-              label="Total Revenue"
-              value={formatCurrency(overall?.totalRevenue ?? 0)}
-              color="#10b981"
-              bg="#f0fdf4"
-            />
-            <KPICard
-              icon="receipt-outline"
-              label="Total Orders"
-              value={String(overall?.totalOrders ?? 0)}
-              color="#3b82f6"
-              bg="#eff6ff"
-            />
-            <KPICard
-              icon="checkmark-circle-outline"
-              label="Completed"
-              value={String(overall?.completedOrders ?? 0)}
-              color="#6b7280"
-              bg="#f9fafb"
-            />
-            <KPICard
-              icon="trending-up-outline"
-              label="Avg. Order"
-              value={formatCurrency(overall?.avgOrderValue ?? 0)}
-              color="#f59e0b"
-              bg="#fffbeb"
-            />
-            <KPICard
-              icon="close-circle-outline"
-              label="Cancelled"
-              value={String(overall?.cancelledOrders ?? 0)}
-              color="#ef4444"
-              bg="#fef2f2"
-            />
-            <KPICard
-              icon="people-outline"
-              label="Students"
-              value={String(overall?.totalStudents ?? 0)}
-              color="#8b5cf6"
-              bg="#f5f3ff"
-            />
+          {/* ── REVENUE NOTE ── */}
+          <View style={styles.revenueNote}>
+            <Ionicons name="information-circle-outline" size={15} color="#10b981" />
+            <Text style={styles.revenueNoteText}>
+              Revenue only counts <Text style={{ fontWeight: "800" }}>completed</Text> orders. Cancelled orders are excluded.
+            </Text>
           </View>
 
-          {/* ── REVENUE BAR CHART ──────────────────────────────────────────── */}
+          {/* ── KPI CARDS ── */}
+          <Text style={styles.sectionTitle}>📊 Key Metrics</Text>
+          <View style={styles.kpiGrid}>
+            <KPICard icon="cash-outline"            label="Total Revenue"  value={formatCurrency(overall?.totalRevenue ?? 0)}  color="#10b981" bg="#f0fdf4" />
+            <KPICard icon="receipt-outline"         label="Total Orders"   value={String(overall?.totalOrders ?? 0)}            color="#3b82f6" bg="#eff6ff" />
+            <KPICard icon="checkmark-circle-outline" label="Completed"     value={String(overall?.completedOrders ?? 0)}        color="#6b7280" bg="#f9fafb" />
+            <KPICard icon="trending-up-outline"     label="Avg. Order"     value={formatCurrency(overall?.avgOrderValue ?? 0)}  color="#f59e0b" bg="#fffbeb" />
+            <KPICard icon="close-circle-outline"    label="Cancelled"      value={String(overall?.cancelledOrders ?? 0)}        color="#ef4444" bg="#fef2f2" />
+            <KPICard icon="people-outline"          label="Students"       value={String(overall?.totalStudents ?? 0)}          color="#8b5cf6" bg="#f5f3ff" />
+          </View>
+
+          {/* ── REVENUE BAR CHART ── */}
           <Text style={styles.sectionTitle}>💰 Daily Revenue</Text>
           <View style={styles.card}>
             {dailySummaries.length === 0 ? (
@@ -340,17 +321,12 @@ export default function ReportsScreen() {
                   contentContainerStyle={styles.barChartContent}
                 >
                   {dailySummaries.map((day, i) => {
-                    const barH = Math.max(
-                      (Number(day.total_revenue) / maxRevenue) * 120, 4
-                    );
-                    const isToday =
-                      day.date === new Date().toISOString().split("T")[0];
+                    const barH  = Math.max((Number(day.total_revenue) / maxRevenue) * 120, 4);
+                    const isToday = day.date === todayStr();
                     return (
                       <View key={i} style={styles.barGroup}>
                         <Text style={styles.barValue}>
-                          {day.total_revenue > 0
-                            ? `₱${Math.round(day.total_revenue)}`
-                            : ""}
+                          {day.total_revenue > 0 ? `₱${Math.round(day.total_revenue)}` : ""}
                         </Text>
                         <View style={styles.barTrack}>
                           <LinearGradient
@@ -366,32 +342,24 @@ export default function ReportsScreen() {
                     );
                   })}
                 </ScrollView>
-
-                {/* chart legend */}
                 <View style={styles.chartLegendRow}>
                   <View style={styles.legendItem}>
                     <View style={[styles.legendDot, { backgroundColor: "#ff4d4d" }]} />
-                    <Text style={styles.legendText}>Revenue per day</Text>
-                  </View>
-                  <View style={styles.legendItem}>
-                    <View style={[styles.legendDot, { backgroundColor: "#ff4d4d", opacity: 0.3 }]} />
-                    <Text style={styles.legendText}>Today</Text>
+                    <Text style={styles.legendText}>Completed orders only</Text>
                   </View>
                 </View>
               </>
             )}
           </View>
 
-          {/* ── ORDER STATUS BREAKDOWN ─────────────────────────────────────── */}
+          {/* ── ORDER STATUS BREAKDOWN ── */}
           <Text style={styles.sectionTitle}>📋 Order Status Breakdown</Text>
           <View style={styles.card}>
             {statusStats.length === 0 ? (
               <EmptyChart text="No orders in this period" />
             ) : (
               statusStats.map((s, i) => {
-                const pct = totalStatusCount > 0
-                  ? (s.count / totalStatusCount) * 100
-                  : 0;
+                const pct   = totalStatusCount > 0 ? (s.count / totalStatusCount) * 100 : 0;
                 const color = STATUS_COLORS[s.status] ?? "#aaa";
                 return (
                   <View key={i} style={styles.statusRow}>
@@ -402,12 +370,7 @@ export default function ReportsScreen() {
                       </Text>
                     </View>
                     <View style={styles.statusBarWrapper}>
-                      <View
-                        style={[
-                          styles.statusBarFill,
-                          { width: `${pct}%`, backgroundColor: color },
-                        ]}
-                      />
+                      <View style={[styles.statusBarFill, { width: `${pct}%`, backgroundColor: color }]} />
                     </View>
                     <Text style={[styles.statusCount, { color }]}>{s.count}</Text>
                     <Text style={styles.statusPct}>{pct.toFixed(0)}%</Text>
@@ -417,38 +380,27 @@ export default function ReportsScreen() {
             )}
           </View>
 
-          {/* ── TOP SELLING ITEMS ──────────────────────────────────────────── */}
+          {/* ── TOP SELLING ITEMS ── */}
           <Text style={styles.sectionTitle}>🏆 Top Selling Items</Text>
           <View style={styles.card}>
             {topItems.length === 0 ? (
               <EmptyChart text="No completed orders in this period" />
             ) : (
               topItems.map((item, i) => {
-                const barW = (item.total_quantity / maxQty) * 100;
+                const barW   = (item.total_quantity / maxQty) * 100;
                 const medals = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣"];
                 return (
                   <View key={i} style={styles.topItemRow}>
                     <Text style={styles.topItemMedal}>{medals[i]}</Text>
                     <View style={styles.topItemInfo}>
                       <View style={styles.topItemNameRow}>
-                        <Text style={styles.topItemName} numberOfLines={1}>
-                          {item.name}
-                        </Text>
-                        <Text style={styles.topItemRevenue}>
-                          {formatCurrency(item.total_revenue)}
-                        </Text>
+                        <Text style={styles.topItemName} numberOfLines={1}>{item.name}</Text>
+                        <Text style={styles.topItemRevenue}>{formatCurrency(item.total_revenue)}</Text>
                       </View>
                       <View style={styles.topItemBarWrapper}>
-                        <View
-                          style={[
-                            styles.topItemBarFill,
-                            { width: `${barW}%` },
-                          ]}
-                        />
+                        <View style={[styles.topItemBarFill, { width: `${barW}%` }]} />
                       </View>
-                      <Text style={styles.topItemQty}>
-                        {item.total_quantity} sold
-                      </Text>
+                      <Text style={styles.topItemQty}>{item.total_quantity} sold</Text>
                     </View>
                   </View>
                 );
@@ -456,14 +408,13 @@ export default function ReportsScreen() {
             )}
           </View>
 
-          {/* ── CATEGORY PERFORMANCE ───────────────────────────────────────── */}
+          {/* ── CATEGORY PERFORMANCE ── */}
           <Text style={styles.sectionTitle}>🍽️ Category Performance</Text>
           <View style={styles.card}>
             {categoryStats.length === 0 ? (
               <EmptyChart text="No category data available" />
             ) : (
               <>
-                {/* pie-like donut using rows */}
                 {categoryStats.map((cat, i) => {
                   const color = CATEGORY_COLORS[cat.category] ?? "#aaa";
                   const pct   = maxCat > 0 ? (cat.count / maxCat) * 100 : 0;
@@ -475,25 +426,16 @@ export default function ReportsScreen() {
                           <Text style={styles.catName}>
                             {cat.category.charAt(0).toUpperCase() + cat.category.slice(1)}
                           </Text>
-                          <Text style={styles.catRevenue}>
-                            {formatCurrency(cat.revenue)}
-                          </Text>
+                          <Text style={styles.catRevenue}>{formatCurrency(cat.revenue)}</Text>
                         </View>
                         <View style={styles.catBarWrapper}>
-                          <View
-                            style={[
-                              styles.catBarFill,
-                              { width: `${pct}%`, backgroundColor: color },
-                            ]}
-                          />
+                          <View style={[styles.catBarFill, { width: `${pct}%`, backgroundColor: color }]} />
                         </View>
                         <Text style={styles.catCount}>{cat.count} items sold</Text>
                       </View>
                     </View>
                   );
                 })}
-
-                {/* category totals */}
                 <View style={styles.catTotalRow}>
                   <Text style={styles.catTotalLabel}>Total Items Sold</Text>
                   <Text style={styles.catTotalValue}>
@@ -504,14 +446,13 @@ export default function ReportsScreen() {
             )}
           </View>
 
-          {/* ── DAILY ORDERS TABLE ─────────────────────────────────────────── */}
+          {/* ── DAILY ORDERS TABLE ── */}
           <Text style={styles.sectionTitle}>📅 Daily Orders Summary</Text>
           <View style={styles.card}>
             {dailySummaries.length === 0 ? (
               <EmptyChart text="No daily data available" />
             ) : (
               <>
-                {/* table header */}
                 <View style={styles.tableHeader}>
                   <Text style={[styles.tableCell, { flex: 1.5 }]}>Date</Text>
                   <Text style={[styles.tableCell, styles.tableCellRight]}>Orders</Text>
@@ -521,8 +462,7 @@ export default function ReportsScreen() {
                 </View>
 
                 {[...dailySummaries].reverse().map((day, i) => {
-                  const isToday =
-                    day.date === new Date().toISOString().split("T")[0];
+                  const isToday = day.date === todayStr();
                   return (
                     <View
                       key={i}
@@ -533,9 +473,7 @@ export default function ReportsScreen() {
                       ]}
                     >
                       <View style={[{ flex: 1.5 }, styles.tableDateCell]}>
-                        <Text style={styles.tableDateText}>
-                          {formatDate(day.date)}
-                        </Text>
+                        <Text style={styles.tableDateText}>{formatDate(day.date)}</Text>
                         {isToday && (
                           <View style={styles.todayPill}>
                             <Text style={styles.todayPillText}>Today</Text>
@@ -558,11 +496,8 @@ export default function ReportsScreen() {
                   );
                 })}
 
-                {/* table footer total */}
                 <View style={styles.tableFooter}>
-                  <Text style={[styles.tableCell, { flex: 1.5, color: "#1a1a1a", fontWeight: "800" }]}>
-                    TOTAL
-                  </Text>
+                  <Text style={[styles.tableCell, { flex: 1.5, color: "#1a1a1a", fontWeight: "800" }]}>TOTAL</Text>
                   <Text style={[styles.tableCell, styles.tableCellRight, { fontWeight: "800" }]}>
                     {dailySummaries.reduce((s, d) => s + d.total_orders, 0)}
                   </Text>
@@ -581,7 +516,6 @@ export default function ReportsScreen() {
           </View>
 
         </View>
-
         <View style={{ height: 40 }} />
       </ScrollView>
     </View>
@@ -589,9 +523,7 @@ export default function ReportsScreen() {
 }
 
 // ─── SUB COMPONENTS ───────────────────────────────────────────────────────────
-function KPICard({
-  icon, label, value, color, bg,
-}: {
+function KPICard({ icon, label, value, color, bg }: {
   icon: string; label: string; value: string; color: string; bg: string;
 }) {
   return (
@@ -620,7 +552,6 @@ const styles = StyleSheet.create({
   loadingContainer: { flex: 1, justifyContent: "center", alignItems: "center", gap: 12 },
   loadingText:      { color: "#999", fontSize: 14 },
 
-  // HEADER
   header: {
     paddingTop: 55, paddingHorizontal: 20, paddingBottom: 24,
     borderBottomLeftRadius: 28, borderBottomRightRadius: 28,
@@ -634,59 +565,55 @@ const styles = StyleSheet.create({
   headerTitle: { fontSize: 18, fontWeight: "800", color: "#fff" },
   headerSub:   { fontSize: 12, color: "rgba(255,255,255,0.8)", textAlign: "center", marginTop: 2 },
 
-  // RANGE
-  rangeRow: { flexDirection: "row", gap: 8 },
-  rangeBtn: {
+  // TABS
+  tabRow: { flexDirection: "row", gap: 6 },
+  tab: {
     flex: 1, paddingVertical: 8, borderRadius: 20,
     backgroundColor: "rgba(255,255,255,0.2)", alignItems: "center",
   },
-  rangeBtnActive:     { backgroundColor: "#fff" },
-  rangeBtnText:       { fontSize: 13, fontWeight: "600", color: "rgba(255,255,255,0.8)" },
-  rangeBtnTextActive: { color: "#ff4d4d" },
+  tabActive:     { backgroundColor: "#fff" },
+  tabText:       { fontSize: 11, fontWeight: "600", color: "rgba(255,255,255,0.8)" },
+  tabTextActive: { color: "#ff4d4d" },
 
-  // BODY
   body:         { padding: 16 },
   sectionTitle: { fontSize: 16, fontWeight: "800", color: "#1a1a1a", marginBottom: 12, marginTop: 8 },
 
-  // KPI GRID
- kpiGrid: { 
-  flexDirection: "row",
-  flexWrap: "wrap",
-  justifyContent: "space-between",
-  marginBottom: 8,
-},
+  // REVENUE NOTE
+  revenueNote: {
+    flexDirection: "row", alignItems: "center", gap: 6,
+    backgroundColor: "#f0fdf4", borderRadius: 12,
+    padding: 10, marginBottom: 16,
+    borderWidth: 1, borderColor: "#bbf7d0",
+  },
+  revenueNoteText: { fontSize: 12, color: "#16a34a", flex: 1 },
 
-kpiCard: {
-  width: (width - 48) / 2, // 2 cards per row
-  borderRadius: 16,
-  padding: 14,
-  marginBottom: 12,
-  gap: 6,
-  shadowColor: "#000",
-  shadowOffset: { width: 0, height: 2 },
-  shadowOpacity: 0.05,
-  shadowRadius: 6,
-  elevation: 2,
-},
+  // KPI GRID
+  kpiGrid: {
+    flexDirection: "row", flexWrap: "wrap",
+    justifyContent: "space-between", marginBottom: 8,
+  },
+  kpiCard: {
+    width: (width - 48) / 2, borderRadius: 16,
+    padding: 14, marginBottom: 12, gap: 6,
+    shadowColor: "#000", shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05, shadowRadius: 6, elevation: 2,
+  },
   kpiIconCircle: { width: 36, height: 36, borderRadius: 10, justifyContent: "center", alignItems: "center" },
   kpiValue:      { fontSize: 16, fontWeight: "800" },
   kpiLabel:      { fontSize: 10, color: "#888", fontWeight: "500" },
 
-  // CARD
   card: {
     backgroundColor: "#fff", borderRadius: 20, padding: 16, marginBottom: 8,
     shadowColor: "#000", shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05, shadowRadius: 8, elevation: 2,
   },
 
-  // BAR CHART
   barChartContent: { paddingBottom: 8, paddingHorizontal: 4, alignItems: "flex-end", gap: 8 },
   barGroup:        { alignItems: "center", width: 52 },
   barValue:        { fontSize: 9, color: "#aaa", marginBottom: 4, textAlign: "center" },
   barTrack: {
-    width: 28, height: 120,
-    backgroundColor: "#f5f5f5", borderRadius: 8,
-    justifyContent: "flex-end", overflow: "hidden",
+    width: 28, height: 120, backgroundColor: "#f5f5f5",
+    borderRadius: 8, justifyContent: "flex-end", overflow: "hidden",
   },
   barFill:    { width: "100%", borderRadius: 8 },
   barLabel:   { fontSize: 10, color: "#aaa", marginTop: 6, textAlign: "center" },
@@ -696,11 +623,7 @@ kpiCard: {
   legendDot:      { width: 10, height: 10, borderRadius: 5 },
   legendText:     { fontSize: 11, color: "#aaa" },
 
-  // STATUS
-  statusRow: {
-    flexDirection: "row", alignItems: "center",
-    gap: 10, marginBottom: 14,
-  },
+  statusRow:        { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 14 },
   statusLeft:       { flexDirection: "row", alignItems: "center", gap: 6, width: 90 },
   statusDot:        { width: 10, height: 10, borderRadius: 5 },
   statusLabel:      { fontSize: 13, fontWeight: "600", color: "#444" },
@@ -709,18 +632,16 @@ kpiCard: {
   statusCount:      { fontSize: 13, fontWeight: "800", width: 28, textAlign: "right" },
   statusPct:        { fontSize: 11, color: "#aaa", width: 34, textAlign: "right" },
 
-  // TOP ITEMS
-  topItemRow:      { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 16 },
-  topItemMedal:    { fontSize: 22, width: 30 },
-  topItemInfo:     { flex: 1 },
-  topItemNameRow:  { flexDirection: "row", justifyContent: "space-between", marginBottom: 6 },
-  topItemName:     { fontSize: 14, fontWeight: "700", color: "#1a1a1a", flex: 1 },
-  topItemRevenue:  { fontSize: 13, fontWeight: "700", color: "#10b981" },
+  topItemRow:        { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 16 },
+  topItemMedal:      { fontSize: 22, width: 30 },
+  topItemInfo:       { flex: 1 },
+  topItemNameRow:    { flexDirection: "row", justifyContent: "space-between", marginBottom: 6 },
+  topItemName:       { fontSize: 14, fontWeight: "700", color: "#1a1a1a", flex: 1 },
+  topItemRevenue:    { fontSize: 13, fontWeight: "700", color: "#10b981" },
   topItemBarWrapper: { height: 6, backgroundColor: "#f5f5f5", borderRadius: 3, overflow: "hidden", marginBottom: 4 },
-  topItemBarFill:  { height: "100%", backgroundColor: "#ff4d4d", borderRadius: 3 },
-  topItemQty:      { fontSize: 11, color: "#aaa" },
+  topItemBarFill:    { height: "100%", backgroundColor: "#ff4d4d", borderRadius: 3 },
+  topItemQty:        { fontSize: 11, color: "#aaa" },
 
-  // CATEGORY
   catRow:       { flexDirection: "row", gap: 12, marginBottom: 16, alignItems: "flex-start" },
   catColorBar:  { width: 4, borderRadius: 2, height: "100%", minHeight: 50 },
   catNameRow:   { flexDirection: "row", justifyContent: "space-between", marginBottom: 6 },
@@ -733,7 +654,6 @@ kpiCard: {
   catTotalLabel:{ fontSize: 13, fontWeight: "700", color: "#666" },
   catTotalValue:{ fontSize: 13, fontWeight: "800", color: "#1a1a1a" },
 
-  // TABLE
   tableHeader: {
     flexDirection: "row", paddingVertical: 10, paddingHorizontal: 8,
     backgroundColor: "#f8f8f8", borderRadius: 10, marginBottom: 4,
@@ -753,7 +673,6 @@ kpiCard: {
     backgroundColor: "#f0f0f0", borderRadius: 10, marginTop: 8,
   },
 
-  // EMPTY
   emptyChart:     { alignItems: "center", paddingVertical: 30, gap: 10 },
   emptyChartText: { color: "#ccc", fontSize: 13 },
 });

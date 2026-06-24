@@ -245,7 +245,7 @@ const { data: recent, error: recentError } = await supabase
         </View>
 
         {/* ── QUICK ACTIONS ──────────────────────────────────────────────── */}
-        <Text style={styles.sectionTitle}>Quick Actions</Text>
+        <Text style={styles.sectionTitle}>Actions</Text>
         <View style={styles.actionsRow}>
                 <QuickAction
           icon="bar-chart-outline"

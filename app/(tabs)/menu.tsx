@@ -190,13 +190,15 @@ export default function MenuScreen() {
         </View>
       </View>
 
-      {/* ── CATEGORY FILTERS ─────────────────────────────────────────────── */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={styles.filterScroll}
-        contentContainerStyle={styles.filterContent}
-      >
+     
+     {/* ── CATEGORY FILTERS ─────────────────────────────────────────────── */}
+<ScrollView
+  horizontal
+  showsHorizontalScrollIndicator={false}
+  style={styles.filterScroll}
+  // Add alignItems: "center" here to prevent the buttons from stretching vertically
+  contentContainerStyle={[styles.filterContent, { alignItems: "center" }]} 
+>
         {CATEGORIES.map(cat => {
           const cfg = CATEGORY_CONFIG[cat];
           const isActive = activeCategory === cat;
@@ -245,69 +247,66 @@ export default function MenuScreen() {
           </Text>
         </View>
       ) : (
-        <FlatList
-          data={filtered}
-          keyExtractor={item => item.id}
-          numColumns={2}
-          columnWrapperStyle={styles.columnWrapper}
-          contentContainerStyle={styles.listContent}
-          showsVerticalScrollIndicator={false}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={() => { setRefreshing(true); fetchItems(); }}
-              tintColor="#ff4d4d"
-            />
-          }
-          renderItem={({ item }) => {
-            const imageUri = getImageUri(item);
-            const cfg = CATEGORY_CONFIG[item.category?.toLowerCase()] ?? CATEGORY_CONFIG.meals;
-            return (
-              <TouchableOpacity
-                style={styles.itemCard}
-                onPress={() => handleOpenModal(item)}
-                activeOpacity={0.9}
-              >
-                {/* IMAGE */}
-                <View style={styles.imageWrapper}>
-                  {imageUri ? (
-                    <Image
-                      source={{ uri: imageUri }}
-                      style={styles.itemImage}
-                    />
-                  ) : (
-                    <View style={[styles.imageFallback, { backgroundColor: cfg.bg }]}>
-                      <Ionicons name={cfg.icon as any} size={36} color={cfg.color} />
-                    </View>
-                  )}
-                  {/* category pill */}
-                  <View style={[styles.categoryPill, { backgroundColor: cfg.bg }]}>
-                    <Text style={[styles.categoryPillText, { color: cfg.color }]}>
-                      {item.category}
-                    </Text>
-                  </View>
-                </View>
+       <FlatList
+  data={filtered}
+  keyExtractor={item => item.id}
+  numColumns={2}
 
-                {/* INFO */}
-                <View style={styles.cardInfo}>
-                  <Text style={styles.itemName} numberOfLines={1}>
-                    {item.name}
-                  </Text>
-                  <View style={styles.itemFooter}>
-                    <Text style={styles.itemPrice}>₱{item.price}</Text>
-                    <TouchableOpacity
-                      style={styles.addBtn}
-                      onPress={() => handleOpenModal(item)}
-                      activeOpacity={0.7}
-                    >
-                      <Ionicons name="add" size={18} color="#fff" />
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              </TouchableOpacity>
-            );
-          }}
-        />
+  columnWrapperStyle={styles.columnWrapper}
+  contentContainerStyle={styles.listContent}
+  showsVerticalScrollIndicator={false}
+  refreshControl={
+    <RefreshControl
+      refreshing={refreshing}
+      onRefresh={() => { setRefreshing(true); fetchItems(); }}
+      tintColor="#ff4d4d"
+    />
+  }
+  renderItem={({ item }) => {
+    const imageUri = getImageUri(item);
+    const cfg = CATEGORY_CONFIG[item.category?.toLowerCase()] ?? CATEGORY_CONFIG.meals;
+    return (
+      <TouchableOpacity
+        style={styles.itemCard}
+        onPress={() => handleOpenModal(item)}
+        activeOpacity={0.9}
+      >
+        {/* IMAGE */}
+        <View style={styles.imageWrapper}>
+          {imageUri ? (
+            <Image source={{ uri: imageUri }} style={styles.itemImage} />
+          ) : (
+            <View style={[styles.imageFallback, { backgroundColor: cfg.bg }]}>
+              <Ionicons name={cfg.icon as any} size={36} color={cfg.color} />
+            </View>
+          )}
+          <View style={[styles.categoryPill, { backgroundColor: cfg.bg }]}>
+            <Text style={[styles.categoryPillText, { color: cfg.color }]}>
+              {item.category}
+            </Text>
+          </View>
+        </View>
+
+        {/* INFO */}
+        <View style={styles.cardInfo}>
+          <Text style={styles.itemName} numberOfLines={1}>
+            {item.name}
+          </Text>
+          <View style={styles.itemFooter}>
+            <Text style={styles.itemPrice}>₱{item.price}</Text>
+            <TouchableOpacity
+              style={styles.addBtn}
+              onPress={() => handleOpenModal(item)}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="add" size={18} color="#fff" />
+            </TouchableOpacity>
+          </View>
+        </View>
+      </TouchableOpacity>
+    );
+  }}
+/>
       )}
 
       {/* ── ADD TO CART MODAL ────────────────────────────────────────────── */}
@@ -465,12 +464,30 @@ const styles = StyleSheet.create({
   searchInput: { flex: 1, fontSize: 14, color: "#1a1a1a" },
 
   // FILTERS
-  filterScroll:  { backgroundColor: "#fff", maxHeight: 56 },
-  filterContent: { paddingHorizontal: 16, paddingVertical: 10, gap: 8 },
+// FILTERS
+ filterScroll: {
+    backgroundColor: "#fff",
+    // Fix the wrapper container to an exact height so it never pushes content down
+    height: 50, 
+    maxHeight: 50,
+  },
+  filterContent: { 
+    paddingHorizontal: 16, 
+    // Remove vertical padding so the container size dictates layout limits
+    paddingVertical: 0, 
+    gap: 8,
+    alignItems: "center", // Keep items perfectly centered vertically
+  },
   filterTab: {
-    flexDirection: "row", alignItems: "center", gap: 5,
-    paddingHorizontal: 12, paddingVertical: 6,
-    borderRadius: 20, borderWidth: 1.5, borderColor: "#e5e5e5",
+    flexDirection: "row", 
+    alignItems: "center", 
+    gap: 5,
+    paddingHorizontal: 12, 
+    // Give the tab an exact height so changing icons/borders can't resize it
+    height: 34, 
+    borderRadius: 20, 
+    borderWidth: 1.5, 
+    borderColor: "#e5e5e5",
     backgroundColor: "#fff",
   },
   filterText:      { fontSize: 13, fontWeight: "600", color: "#666" },
@@ -479,15 +496,24 @@ const styles = StyleSheet.create({
 
   // GRID
   listContent:   { padding: 16, paddingBottom: 40 },
-  columnWrapper: { justifyContent: "space-between", marginBottom: 16 },
+columnWrapper: {
+  justifyContent: "space-between",
+  marginBottom: 16,
+  paddingHorizontal: 0,
+},
 
   // ITEM CARD
-  itemCard: {
-    backgroundColor: "#fff", borderRadius: 20, width: CARD_WIDTH,
-    overflow: "hidden",
-    shadowColor: "#000", shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06, shadowRadius: 8, elevation: 3,
-  },
+itemCard: {
+  backgroundColor: "#fff",
+  borderRadius: 20,
+  width: CARD_WIDTH,
+  overflow: "hidden",
+  shadowColor: "#000",
+  shadowOffset: { width: 0, height: 2 },
+  shadowOpacity: 0.06,
+  shadowRadius: 8,
+  elevation: 3,
+},
   imageWrapper:  { width: "100%", height: 130, position: "relative" },
   itemImage:     { width: "100%", height: "100%", resizeMode: "cover" },
   imageFallback: { width: "100%", height: "100%", justifyContent: "center", alignItems: "center" },
