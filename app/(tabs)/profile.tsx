@@ -8,11 +8,10 @@ import {
   Animated,
   ScrollView,
   StyleSheet,
-  Switch,
   Text,
   TextInput,
   TouchableOpacity,
-  View,
+  View
 } from "react-native";
 import { supabase } from "../../lib/supabase";
 
@@ -361,26 +360,7 @@ export default function ProfileScreen() {
         </View>
 
         {/* ── PREFERENCES ────────────────────────────────────────────────── */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Preferences</Text>
-          <View style={styles.prefRow}>
-            <View style={styles.prefLeft}>
-              <View style={[styles.prefIconBox, { backgroundColor: "#fff5f5" }]}>
-                <Ionicons name="notifications-outline" size={18} color="#ff4d4d" />
-              </View>
-              <View>
-                <Text style={styles.prefLabel}>Order Notifications</Text>
-                <Text style={styles.prefSub}>Get notified when order is ready</Text>
-              </View>
-            </View>
-            <Switch
-              value={notifications}
-              onValueChange={setNotifications}
-              trackColor={{ false: "#f0f0f0", true: "#ff4d4d" }}
-              thumbColor="#fff"
-            />
-          </View>
-        </View>
+       
 
         {/* ── LOGOUT ─────────────────────────────────────────────────────── */}
         <View style={styles.logoutSection}>

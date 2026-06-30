@@ -149,7 +149,8 @@ const saveEditedNote = () => {
       return;
     }
 
-    // 3. Prepare order items payload
+    // 3. Prepare order 
+    //  payload
     const orderItemsPayload = cart.map((item: any) => ({
       order_id: orderData.id,
       food_id: item.id,
@@ -524,18 +525,41 @@ const saveEditedNote = () => {
 
             <View style={styles.receiptDashedDivider} />
 
-            {/* ORDER ITEMS BREAKDOWN */}
-            <Text style={styles.receiptSectionHeader}>Items Ordered</Text>
-            <ScrollView style={styles.receiptItemsScroll} showsVerticalScrollIndicator={false}>
-              {placedOrderDetails?.items.map((item: any) => (
-                <View key={item.id} style={styles.receiptItemLine}>
-                  <Text style={styles.receiptItemQtyName}>
-                    {item.quantity}x  <Text style={{ fontWeight: '500', color: '#374151' }}>{item.name}</Text>
-                  </Text>
-                  <Text style={styles.receiptItemPrice}>₱{(item.price * item.quantity).toFixed(2)}</Text>
-                </View>
-              ))}
-            </ScrollView>
+           {/* ORDER ITEMS BREAKDOWN */}
+<Text style={styles.receiptSectionHeader}>Items Ordered</Text>
+<ScrollView style={styles.receiptItemsScroll} showsVerticalScrollIndicator={false}>
+  {placedOrderDetails?.items.map((item: any, index: number) => (
+    <View key={item.id} style={styles.receiptItemBlock}>
+      {/* item row */}
+      <View style={styles.receiptItemLine}>
+        <Text style={styles.receiptItemQtyName}>
+          {item.quantity}x{" "}
+          <Text style={{ fontWeight: "500", color: "#374151" }}>
+            {item.name}
+          </Text>
+        </Text>
+        <Text style={styles.receiptItemPrice}>
+          ₱{(item.price * item.quantity).toFixed(2)}
+        </Text>
+      </View>
+
+      {/* special instructions — only show if exists */}
+      {(item.note || item.special_instructions) ? (
+        <View style={styles.receiptNoteRow}>
+          <Ionicons name="document-text-outline" size={11} color="#9ca3af" />
+          <Text style={styles.receiptNoteText}>
+            {item.note || item.special_instructions}
+          </Text>
+        </View>
+      ) : null}
+
+      {/* divider between items except last */}
+      {index < (placedOrderDetails?.items.length ?? 0) - 1 && (
+        <View style={styles.receiptItemDivider} />
+      )}
+    </View>
+  ))}
+</ScrollView>
 
             <View style={styles.receiptDashedDivider} />
 
@@ -876,4 +900,29 @@ const styles = StyleSheet.create({
   receiptDownloadText: { color: "#fff", fontSize: 14, fontWeight: "700" },
   receiptCloseBtn: { width: "100%", paddingVertical: 12, alignItems: "center", justifyContent: "center" },
   receiptCloseText: { color: "#dfdfdf", fontSize: 13, fontWeight: "600" },
+  // inside your existing styles
+receiptItemBlock: {
+  width: "100%",
+  paddingVertical: 4,
+},
+receiptNoteRow: {
+  flexDirection: "row",
+  alignItems: "flex-start",
+  gap: 5,
+  marginTop: 3,
+  marginBottom: 4,
+  paddingLeft: 4,
+},
+receiptNoteText: {
+  fontSize: 11,
+  color: "#9ca3af",
+  fontStyle: "italic",
+  flex: 1,
+  lineHeight: 15,
+},
+receiptItemDivider: {
+  height: 1,
+  backgroundColor: "#f5f5f5",
+  marginVertical: 4,
+},
 });

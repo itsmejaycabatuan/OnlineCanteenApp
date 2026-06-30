@@ -3,15 +3,15 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    Modal,
-    RefreshControl,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  Modal,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { supabase } from "../../lib/supabase";
 
@@ -20,6 +20,7 @@ type OrderItem = {
   id: string;
   quantity: number;
   subtotal: number;
+  special_instructions: string | null;  // ← add this
   foods: { name: string; price: number } | null;
 };
 
@@ -60,15 +61,15 @@ export default function AdminOrders() {
   // ── fetch ──────────────────────────────────────────────────────────────────
  const fetchOrders = async () => {
   try {
-    const { data, error } = await supabase
-      .from("orders")
-      .select(`
-        id, status, total_amount, created_at, user_id,
-        order_items(id, quantity, subtotal, foods(name, price))
-      `)
-      .order("created_at", { ascending: false }) as unknown as {
-        data: any[] | null; error: any;
-      };
+  const { data, error } = await supabase
+  .from("orders")
+  .select(`
+    id, status, total_amount, created_at, user_id,
+    order_items(id, quantity, subtotal, special_instructions, foods(name, price))
+  `)                          // ← add special_instructions here
+  .order("created_at", { ascending: false }) as unknown as {
+    data: any[] | null; error: any;
+  };
 
     if (error) { console.error(error); return; }
 
@@ -279,11 +280,21 @@ const confirmUpdateStatus = (order: Order, next: string, nextLabel: string) => {
                   </View>
                 </View>
 
-                {/* items preview */}
-                <View style={styles.orderDivider} />
-                <Text style={styles.orderItemsPreview} numberOfLines={1}>
-                  {order.order_items?.map(i => `${i.foods?.name ?? "Item"} x${i.quantity}`).join("  •  ")}
-                </Text>
+               {/* items preview */}
+<View style={styles.orderDivider} />
+<Text style={styles.orderItemsPreview} numberOfLines={1}>
+  {order.order_items?.map(i => `${i.foods?.name ?? "Item"} x${i.quantity}`).join("  •  ")}
+</Text>
+
+{/* show notes if any item has special instructions */}
+{order.order_items?.some(i => i.special_instructions) && (
+  <View style={styles.orderNoteRow}>
+    <Ionicons name="document-text-outline" size={12} color="#f59e0b" />
+    <Text style={styles.orderNoteText} numberOfLines={1}>
+      Has special instructions
+    </Text>
+  </View>
+)}
 
                 {/* bottom row */}
                 <View style={styles.orderCardBottom}>
@@ -337,21 +348,36 @@ const confirmUpdateStatus = (order: Order, next: string, nextLabel: string) => {
                     <Text style={[styles.modalStatusText, { color: cfg.color }]}>{cfg.label}</Text>
                   </View>
 
-                  {/* order items */}
-                  <Text style={styles.modalSectionTitle}>Order Items</Text>
-                  <ScrollView style={styles.modalItemsList}>
-                    {selectedOrder.order_items?.map((item, i) => (
-                      <View key={i} style={styles.modalItem}>
-                        <View style={styles.modalItemLeft}>
-                          <Text style={styles.modalItemQty}>x{item.quantity}</Text>
-                          <Text style={styles.modalItemName}>{item.foods?.name ?? "Item"}</Text>
-                        </View>
-                        <Text style={styles.modalItemPrice}>
-                          ₱{Number(item.subtotal).toFixed(2)}
-                        </Text>
-                      </View>
-                    ))}
-                  </ScrollView>
+                {/* order items */}
+<Text style={styles.modalSectionTitle}>Order Items</Text>
+<ScrollView style={styles.modalItemsList}>
+  {selectedOrder.order_items?.map((item, i) => (
+    <View key={i} style={styles.modalItemBlock}>
+
+      {/* item row */}
+      <View style={styles.modalItem}>
+        <View style={styles.modalItemLeft}>
+          <Text style={styles.modalItemQty}>x{item.quantity}</Text>
+          <Text style={styles.modalItemName}>{item.foods?.name ?? "Item"}</Text>
+        </View>
+        <Text style={styles.modalItemPrice}>
+          ₱{Number(item.subtotal).toFixed(2)}
+        </Text>
+      </View>
+
+      {/* special instructions */}
+      {item.special_instructions ? (
+        <View style={styles.modalItemNote}>
+          <Ionicons name="document-text-outline" size={12} color="#f59e0b" />
+          <Text style={styles.modalItemNoteText}>
+            {item.special_instructions}
+          </Text>
+        </View>
+      ) : null}
+
+    </View>
+  ))}
+</ScrollView>
 
                   {/* total */}
                   <View style={styles.modalTotalRow}>
@@ -516,5 +542,42 @@ orderIdText: {
   fontWeight: "700",
   color: "#ff4d4d",
   letterSpacing: 0.5,
+},
+// Add these to your StyleSheet.create
+modalItemBlock: {
+  borderBottomWidth: 1,
+  borderBottomColor: "#f5f5f5",
+  paddingVertical: 8,
+},
+modalItemNote: {
+  flexDirection: "row",
+  alignItems: "flex-start",
+  gap: 6,
+  backgroundColor: "#fffbeb",
+  borderRadius: 8,
+  paddingHorizontal: 10,
+  paddingVertical: 6,
+  marginTop: 4,
+  marginBottom: 4,
+  borderWidth: 1,
+  borderColor: "#fde68a",
+},
+modalItemNoteText: {
+  fontSize: 12,
+  color: "#92400e",
+  fontStyle: "italic",
+  flex: 1,
+  lineHeight: 16,
+},
+orderNoteRow: {
+  flexDirection: "row",
+  alignItems: "center",
+  gap: 5,
+  marginBottom: 10,
+},
+orderNoteText: {
+  fontSize: 12,
+  color: "#f59e0b",
+  fontWeight: "600",
 },
 });

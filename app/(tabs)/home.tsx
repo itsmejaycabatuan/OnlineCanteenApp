@@ -32,6 +32,9 @@ export default function HomeScreen() {
   const [quantity, setQuantity]           = useState(1);
   const [note, setNote]                   = useState("");
 
+  // ── NEW STATE: FOR HOLDING MANUALLY REFRESHED ACTIVE ORDERS ──
+  const [activeOrder, setActiveOrder] = useState<any | null>(null);
+
   const categories = [
     { icon: "fast-food-outline", label: "Meals",    bg: "#fff1f1", accent: "#ff4d4d" },
     { icon: "cafe-outline",      label: "Drinks",   bg: "#f0f7ff", accent: "#4d9fff" },
@@ -39,32 +42,79 @@ export default function HomeScreen() {
     { icon: "ice-cream-outline", label: "Desserts", bg: "#f5f0ff", accent: "#9f4dff" },
   ];
 
-  // ── fetch ──────────────────────────────────────────────────────────────────
+  // ── STATUS CONDITIONAL COLOR MAPPING (MATCHES YOUR REFERENCE STYLING) ──
+  const STATUS_STYLE_CONFIG: Record<string, { color: string; bg: string; icon: string; label: string }> = {
+    pending:   { color: "#f59e0b", bg: "#fffbeb", icon: "time-outline",             label: "Pending"   },
+    preparing: { color: "#3b82f6", bg: "#eff6ff", icon: "flame-outline",            label: "Preparing" },
+    ready:     { color: "#10b981", bg: "#f0fdf4", icon: "checkmark-circle-outline", label: "Ready !"   },
+  };
+
+  // ── fetch food items ───────────────────────────────────────────────────────
   const fetchFoods = async () => {
     const { data, error } = await supabase
       .from("foods")
       .select("*")
       .eq("is_available", true)
-      .limit(5);              // ← limit to 5 featured items
+      .limit(5);
 
     if (error) {
       console.log("Fetch error:", error.message);
     } else {
       setFoods(data ?? []);
     }
-    setRefreshing(false);
   };
 
-  // ── auto refresh when tab is focused ──────────────────────────────────────
+  // ── NEW FUNCTION: MANUAL DATABASE FETCH FOR ACTIVE UNCOMPLETED ORDER ──────
+  const fetchActiveOrder = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      // Select matching relational columns based on your order reference structures
+      const { data, error } = await supabase
+        .from("orders")
+        .select(`
+          id,
+          status,
+          total_amount,
+          created_at,
+          order_items(
+            id,
+            quantity,
+            subtotal,
+            foods(name, price)
+          )
+        `)
+        .eq("user_id", user.id)
+        .in("status", ["pending", "preparing", "ready"]) // Filters only active states
+        .order("created_at", { ascending: false })
+        .limit(1);
+
+      if (error) {
+        console.log("Error fetching active order:", error.message);
+      } else if (data && data.length > 0) {
+        setActiveOrder(data[0]);
+      } else {
+        setActiveOrder(null); // No active orders running
+      }
+    } catch (err) {
+      console.log("Exception getting active order:", err);
+    }
+  };
+
+  // ── AUTOMATIC FETCH WHEN TAB FOCUSES OR VISITED ───────────────────────────
   useFocusEffect(
     useCallback(() => {
       fetchFoods();
+      fetchActiveOrder();
     }, [])
   );
 
-  const onRefresh = () => {
+  // ── MANUAL REFRESH HANDLER (PULL TO REFRESH & HEADER ICON ACTION) ─────────
+  const onRefresh = async () => {
     setRefreshing(true);
-    fetchFoods();
+    await Promise.all([fetchFoods(), fetchActiveOrder()]);
+    setRefreshing(false);
   };
 
   // ── modal ──────────────────────────────────────────────────────────────────
@@ -99,7 +149,6 @@ export default function HomeScreen() {
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContainer}
-        // ← pull to refresh
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -122,7 +171,7 @@ export default function HomeScreen() {
               <Text style={styles.headerName}>Hello, Student!</Text>
             </View>
 
-            {/* ← REFRESH BUTTON */}
+            {/* Tap icon acts as an alternate manual refresh route */}
             <TouchableOpacity
               style={styles.notifBtn}
               onPress={onRefresh}
@@ -162,6 +211,45 @@ export default function HomeScreen() {
               </TouchableOpacity>
             ))}
           </View>
+
+          {/* ── NEW FEATURE ELEMENT: ACTIVE ORDER DISPLAY WIDGET (ABOVE TODAY'S SPECIAL) ── */}
+          {activeOrder && (() => {
+            const cfg = STATUS_STYLE_CONFIG[activeOrder.status] ?? STATUS_STYLE_CONFIG.pending;
+            const firstItemName = activeOrder.order_items?.[0]?.foods?.name ?? "Food Item";
+            const additionalItemsCount = (activeOrder.order_items?.length ?? 1) - 1;
+
+            return (
+              <TouchableOpacity 
+                style={styles.statusCard}
+                activeOpacity={0.9}
+                onPress={() => router.push("/(tabs)/orders" as any)}
+              >
+                <View style={styles.statusLeft}>
+                  <View style={styles.statusIconWrapper}>
+                    <Ionicons name="fast-food" size={22} color="#ff4d4d" />
+                  </View>
+                  <View style={styles.statusTextInfo}>
+                    <Text style={styles.statusItemTitle} numberOfLines={1}>
+                      {firstItemName}{additionalItemsCount > 0 ? ` +${additionalItemsCount} more` : ""}
+                    </Text>
+                    <Text style={styles.statusOrderId}>
+                      Order #{activeOrder.id.slice(0, 8).toUpperCase()}
+                    </Text>
+                    <Text style={styles.statusPriceTag}>
+                      ₱{Number(activeOrder.total_amount).toFixed(2)}
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={[styles.statusBadgeElement, { backgroundColor: cfg.bg }]}>
+                  <Ionicons name={cfg.icon as any} size={14} color={cfg.color} style={{ marginRight: 4 }} />
+                  <Text style={[styles.statusBadgeTextString, { color: cfg.color }]}>
+                    {cfg.label}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            );
+          })()}
 
           {/* TODAY'S SPECIAL */}
           <LinearGradient
@@ -259,7 +347,7 @@ export default function HomeScreen() {
         </View>
       </ScrollView>
 
-      {/* MODAL */}
+      {/* CONFIGURATION MODAL */}
       <Modal
         animationType="slide"
         transparent
@@ -268,9 +356,7 @@ export default function HomeScreen() {
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
-
             <View style={styles.dragIndicator} />
-
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Configure Order</Text>
               <TouchableOpacity
@@ -342,7 +428,6 @@ export default function HomeScreen() {
           </View>
         </View>
       </Modal>
-
     </LinearGradient>
   );
 }
@@ -379,6 +464,68 @@ const styles = StyleSheet.create({
   categoryBox: { alignItems: "center", borderRadius: 16, paddingVertical: 14, paddingHorizontal: 6, flex: 1 },
   categoryLabel:{ marginTop: 6, fontSize: 11, fontWeight: "600" },
 
+  // ── NEW CARD ELEMENT STYLES ──
+  statusCard: {
+    flexDirection: "row",
+    backgroundColor: "#ffffff",
+    borderRadius: 20,
+    padding: 16,
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 24,
+    borderWidth: 1.5,
+    borderColor: "#ff4d4d",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  statusLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+  },
+  statusIconWrapper: {
+    width: 42,
+    height: 42,
+    borderRadius: 12,
+    backgroundColor: "#fff5f5",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  statusTextInfo: {
+    marginLeft: 12,
+    flex: 1,
+  },
+  statusItemTitle: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#1a1a1a",
+  },
+  statusOrderId: {
+    fontSize: 11,
+    color: "#aaa",
+    marginTop: 1,
+  },
+  statusPriceTag: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: "#ff4d4d",
+    marginTop: 2,
+  },
+  statusBadgeElement: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+  },
+  statusBadgeTextString: {
+    fontSize: 12,
+    fontWeight: "700",
+  },
+
   banner: { borderRadius: 20, padding: 22, flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 24 },
   bannerLeft:       { flex: 1 },
   bannerBadge:      { backgroundColor: "rgba(255,77,77,0.2)", borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4, alignSelf: "flex-start", marginBottom: 8 },
@@ -387,7 +534,6 @@ const styles = StyleSheet.create({
   bannerSub:        { color: "rgba(255,255,255,0.6)", fontSize: 12, marginBottom: 14 },
   bannerEmoji:      { fontSize: 64, marginLeft: 10 },
 
-  // EMPTY FEATURED
   emptyFeatured:     { alignItems: "center", paddingVertical: 30, gap: 8, marginBottom: 24 },
   emptyFeaturedText: { color: "#ccc", fontSize: 14 },
 

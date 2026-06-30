@@ -95,10 +95,13 @@ const { signOut } = useAuth();
         .lte("created_at", `${today}T23:59:59`);
 
       const totalOrders  = todayOrders?.length ?? 0;
-      const pendingOrders = todayOrders?.filter(o => o.status === "pending").length ?? 0;
-      const totalRevenue  = todayOrders
-        ?.filter(o => o.status !== "cancelled")
-        .reduce((sum, o) => sum + Number(o.total_amount), 0) ?? 0;
+// ── also make pending more accurate ──
+const pendingOrders = todayOrders?.filter(o => o.status === "pending").length ?? 0;
+// this is already correct in your code ✅
+// ── AFTER (correct — only counts completed orders) ──
+const totalRevenue = todayOrders
+  ?.filter(o => o.status === "completed")
+  .reduce((sum, o) => sum + Number(o.total_amount), 0) ?? 0;
 
       // 3. most ordered item today
      const { data: itemData } = await supabase
@@ -227,13 +230,13 @@ const { data: recent, error: recentError } = await supabase
             accent="#f59e0b"
             bg="#fffbeb"
           />
-          <StatCard
-            icon="cash-outline"
-            label="Revenue"
-            value={`₱${(stats?.totalRevenue ?? 0).toLocaleString()}`}
-            accent="#10b981"
-            bg="#f0fdf4"
-          />
+        <StatCard
+  icon="cash-outline"
+  label="Revenue (Completed)"  // ← update label
+  value={`₱${(stats?.totalRevenue ?? 0).toLocaleString()}`}
+  accent="#10b981"
+  bg="#f0fdf4"
+/>
           <StatCard
             icon="star-outline"
             label="Top Item"
